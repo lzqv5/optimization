@@ -20,7 +20,7 @@ def read_data(path):
     # 清楚全 0 features
     effective_row_ids = []
     for idx, row in enumerate(A_np):
-        if np.sum(row) > 1e-3:
+        if True or np.sum(row) > 1e-3:
             effective_row_ids.append(idx)
     return b[effective_row_ids], A_np[effective_row_ids]
 
@@ -43,12 +43,81 @@ def solve_tridiagonal_system(diag: np.ndarray, subdiag: np.ndarray, tau: float, 
     return d
 
 
+# def tridiag(A):
+#     n=A.shape[0]
+#     v=np.zeros((n,1))
+#     p=np.ones((n,n))
+#     finalp=np.zeros((n,n))
+#     a1=np.zeros((n,n))
+#     a=A
+#     for k in range(1,n-1):
+#         r=0
+#         for l in range(k,n):
+#             r=r+a[k-1,l]*a[k-1,l]
+#         r=r**0.5
+#         if r*a[k-1,k]>0:
+#             r=-r
+#         if r==0:
+#             continue
+#         h=-1.0/(r*r-r*a[k-1,k])
+#         v[:]=0
+#         v[k,0]=a[k-1,k]-r
+#         for l in range(k+2,n+1):
+#             v[l-1,0]=a[k-1,l-1]
+#         p=np.dot(v,np.transpose(v))*h
+#         for l in range(1,n+1):
+#             p[l-1,l-1]=p[l-1,l-1]+1.0
+#         a1=np.dot(p,a)
+#         a=np.dot(a1,p)
+#         finalp=np.dot(finalp,p)
+#     return a,finalp
+
+def ss(A, jj):
+    """Subfunction for h_trid."""
+    return np.sqrt(np.sum(A[jj + 1:, jj] ** 2))
+
+def h_trid(A):
+    """
+    H_TRID(A) uses Householder method to form a tridiagonal matrix from A.
+    Must have a SQUARE SYMMETRIC matrix as the input.
+    """
+    M, N = A.shape
+    if M != N or (A != A.T).any():  # This just screens matrices that can't work.
+        raise ValueError("Matrix must be square symmetric only, see help.")
+
+    lngth = len(A)  # Preallocations.
+    v = np.zeros((lngth,1))
+    I = np.eye(lngth)
+    Aold = A
+    finalP=np.eye(lngth)
+    nv=0
+    for jj in range(lngth - 2):  # Build each vector j and run the whole procedure.
+        v[:jj+1,0] = 0
+        S = ss(Aold, jj)
+        v[jj + 1,0] = np.sqrt(0.5 * (1 + abs(Aold[jj + 1, jj]) / (S + 2 * np.finfo(float).eps)))
+        v[jj + 2:,0] = Aold[jj + 2:, jj] * np.sign(Aold[jj + 1, jj]) / (2 * v[jj + 1] * S + 2 * np.finfo(float).eps)
+        nv=np.linalg.norm(v)
+        print("Norm:",np.linalg.norm(v))
+        P = I - 2 * v@v.T
+        if np.max(np.abs(P))>2:
+            print(np.max(np.abs(P)),flush=True)
+        Anew = P @ Aold @ P
+        Aold = Anew
+        finalP=finalP@P
+    Anew[abs(Anew) < 5e-14] = 0  # Tolerance.
+
+    return Anew,finalP.T
+
+
+
 def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_eps: float) -> np.ndarray:
     n = g.shape[0]
-
-    H_tridiag, Q = np.linalg.qr(H)
+    np.savetxt("matrix.txt",H)
+    H_tridiag, Q = h_trid(H)
+    # print(H_tridiag)
     diag = np.diag(H_tridiag)
     subdiag = np.diag(H_tridiag, k=-1)
+    print("Other:",sum(np.diag(H_tridiag, k=-2))+sum(np.diag(H_tridiag, k=2)),flush=True)
     g_ = Q.T.dot(g)
 
     tau = 1.0
@@ -103,7 +172,8 @@ def contracting_newton(params, c_0, decrease_gamma, history):
     data_accesses = m
 
     x_k = params['x_0'].copy()
-    Ax = params['A'].dot(x_k)
+    # Ax = params['A'].dot(x_k)
+    Ax = params['A']@x_k
     g_k = np.zeros(n)
     H_k = np.zeros((n, n))
     v_k = np.zeros(n)
@@ -112,7 +182,7 @@ def contracting_newton(params, c_0, decrease_gamma, history):
     if decrease_gamma:
         gamma_str += " / (3 + k)"
     print(f"Contracting Newton Method, {gamma_str}")
-    for k in tqdm(range(params['n_iters'] + 1)):
+    for k in range(params['n_iters'] + 1):
         to_finish = False
         # update_history(
         #     params,
@@ -132,7 +202,9 @@ def contracting_newton(params, c_0, decrease_gamma, history):
         gamma_k = c_0
         if decrease_gamma:
             gamma_k /= 3.0 + k
-
+            # gamma_k=c_0*(1-(k/(k+1))**3)
+            # print("Gamma_k=",gamma_k)
+        print("Round:",k,flush=True)
         g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax))))
         H_k = (inv_m * gamma_k) * (params['A'].T.dot((1 / (1 + np.exp(-Ax)) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A']))
         g_k -= H_k.dot(x_k)
@@ -144,21 +216,24 @@ def contracting_newton(params, c_0, decrease_gamma, history):
         data_accesses += m
     print("Done.")
 
+
 b, A = read_data('w8a')
 # b, A = read_data('ijcnn1.test')
 # b, A = read_data('a9a.test')
 # b, A = read_data('CINA.test')
 m,n = A.shape
-m,n
-
+print(m,n)
+# b=np.expand_dims(b, axis=1)
 params=dict()
-params['A']=A
+params['A']=-np.multiply(b,A.T).T
+# print(params['A'][0,:])
+print(np.sum(A==params['A']))
 params['x_0']=np.zeros(n)
 c_0 = 3.0
 params['R']=10
-params['inner_eps']=1e-9
+params['inner_eps']=1e-5
 params['outer_eps']=1e-5
-params['n_iters']=10000
+params['n_iters']=0
 history=None
 decrease_gamma=True
 contracting_newton(params, c_0, decrease_gamma, history)
