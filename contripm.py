@@ -42,9 +42,10 @@ def solve_tridiagonal_system(diag: np.ndarray, subdiag: np.ndarray, tau: float, 
         d[i] -= c[i] * d[i + 1]
 
     return d
-lamda = 100
+# 1/params['lambda'] = 100
 def phi(x,D):
-    return -np.log(D/2-np.linalg.norm(x,ord=2))
+    real = D/2-np.linalg.norm(x,ord=2)
+    return -np.log(real) if real>0 else float("inf")
 
 def phi_grad(x,D):
     x_norm = np.linalg.norm(x,ord=2)
@@ -64,13 +65,15 @@ def f(x,params):
     log1p_exp = np.log(1+exp_mbAx)
     overflow_idxs = np.where(exp_mbAx==float('inf'))
     log1p_exp[overflow_idxs] = -bAx[overflow_idxs]
-    return log1p_exp.mean() + 1/(lamda*m)* x.T@x
+    return log1p_exp.mean() + 1/(1/params['lambda']*m)* x.T@x
 
+def f_orig(x,params):
+    return f(x,params)
 def f_grad(x,params):
     b=params['b']
     A=params['A_o']
     m=A.shape[0]
-    return np.ones(m)@(np.expand_dims((-b)/(1+np.exp(b*(A@x))), axis=1)*A)/m + 2/(lamda*m)*x
+    return np.ones(m)@(np.expand_dims((-b)/(1+np.exp(b*(A@x))), axis=1)*A)/m + 2/(1/params['lambda']*m)*x
 
 def f_hessian(x,params):
     b=params['b']
@@ -78,35 +81,37 @@ def f_hessian(x,params):
     m=A.shape[0]
     Ax = A@x
     exp_bAx = np.exp(b*Ax)
-    return (A.T @ (np.expand_dims(b*b*exp_bAx/(1+exp_bAx)**2, axis=1)*A) )/m + 2/(lamda*m)*np.eye(x.size)
+    return (A.T @ (np.expand_dims(b*b*exp_bAx/(1+exp_bAx)**2, axis=1)*A) )/m + 2/(1/params['lambda']*m)*np.eye(x.size)
 def f_int(x,params,x_k,gamma_k):
     return f_grad(x_k,params).dot(x-x_k)+gamma_k/2*(f_hessian(x_k,params)@(x-x_k)).dot(x-x_k)
 def f_int_grad(x,params,x_k,gamma_k):
     return f_grad(x_k,params)+gamma_k*f_hessian(x_k,params)@(x-x_k)
 def f_int_hess(x,params,x_k,gamma_k):
     return gamma_k*f_hessian(x_k,params)
-def barrier_method(t_init, f, f_grad, f_hessian, phi, phi_grad, phi_hessian, A, b, x0, D, num_constraints, mu,
+def barrier_method(t_init, f, f_grad, f_hessian, phi, phi_grad, phi_hessian, A, b, x0, D, num_constraints, mu,t_s,params,
                         method='newton', epsilon=1e-6, maxIter=20):
     xt = x0
     t = t_init
     duality_gaps = []
     func_val_record = []
-    t_s = time()
+    time_record = []
     pbar=tqdm(range(maxIter))
     pbar.set_description('内点法')
     for i in pbar:
-        xt,num_newton_step, fvals = solve_central(objective=f,
+        xt,num_newton_step, fvals,times = solve_central(objective=lambda x:f_orig(x,params),
                                 f=lambda x:t*f(x)+phi(x,D), 
                                 f_grad=lambda x:t*f_grad(x)+phi_grad(x,D), 
                                 f_hessian=lambda x:t*f_hessian(x)+phi_hessian(x,D),
                                 x0=xt, D=D, method=method, epsilon=epsilon*1e3)
+        times=(np.array(times)-t_s).tolist() 
         duality_gaps.extend([num_constraints/t]*num_newton_step)
         func_val_record.extend(fvals)
+        time_record.extend(times)
         if num_constraints/t < epsilon:
             break
         t *= mu
     t_e = time()
-    return xt, t_e-t_s, np.array(duality_gaps), np.array(func_val_record)
+    return xt, t_e-t_s, np.array(duality_gaps), np.array(func_val_record),np.array(time_record)
 def armijo_search(f, f_grad, xk, t_hat, alpha, beta, D, isNewton=False, dk=None):
     if isNewton:
         assert dk is not None
@@ -133,20 +138,24 @@ def damped_newton(objective, f, f_grad, f_hessian, x0, D, epsilon=1e-6, max_iter
     xk = x0
     iter_cnt = 0
     fvals = []
+    times=[]
     for idx in range(max_iter):
         iter_cnt += 1
         fvals.append(objective(xk))
+        times.append(time())
         grad = f_grad(xk)
         hessian = f_hessian(xk)
         dk = -np.linalg.inv(hessian)@grad
         decrement = (-grad@dk)**0.5
         if decrement**2/2 <= epsilon:
             # print('** End The Loop - Iter Cnt.:',iter_cnt, 'Decrement:',decrement, 'fval:',f(xk))
-            return xk, iter_cnt, fvals
+            return xk, iter_cnt, fvals,times
         tk = armijo_search(f, f_grad, xk, t_hat=1, alpha=0.1, beta=0.5, D=D, isNewton=True, dk=dk)
         # print('Iter Cnt.:',iter_cnt, 'Decrement:',decrement, 'fval:',f(xk), 'tk:',tk)
         xk += tk*dk
-    return xk, iter_cnt, fvals
+    return xk, iter_cnt, fvals, times
+
+
 def update_approximation_bfgs(mat, sk, yk, mat_type='H'):
     rhok = 1/(yk@sk)
     if mat_type == 'H':
@@ -216,7 +225,7 @@ def bfgs(objective, f, f_grad, f_hessian, x0, D, alpha=0.1, beta=0.5, epsilon=1e
     # mat_k = np.eye(n) 
     iter_cnt = 0
     fvals = []
-    # pbar=tqdm(range(max_iter))
+    times=[]
     for idx in range(max_iter):
         iter_cnt += 1
         grad_k = f_grad(xk)
@@ -225,28 +234,33 @@ def bfgs(objective, f, f_grad, f_hessian, x0, D, alpha=0.1, beta=0.5, epsilon=1e
         if tk<0:
             return xk, iter_cnt-1, fvals
         fvals.append(objective(xk))
+        times.append(time())
         sk = tk*dk
         xk_next = xk + sk
         grad_next = f_grad(xk_next)
         # if np.linalg.norm(grad_next, ord=2) <= epsilon:
-        if np.linalg.norm(grad_next, ord=2) <= epsilon or np.linalg.norm(xk_next)>=D/2-1e-2:
-            # print(f'Iteration {iter_cnt} - grad_norm: {np.linalg.norm(grad_next)}, tk: {tk}, x_norm:{np.linalg.norm(xk_next)}')
-            return xk_next, iter_cnt, fvals
-        # else:
-            # print(f'Iteration {iter_cnt} - grad_norm: {np.linalg.norm(grad_next)}, tk: {tk}, x_norm:{np.linalg.norm(xk_next)}')
+        if np.linalg.norm(xk_next)>=D/2-1e-2:
+            while np.linalg.norm(xk_next)>=D/2-1e-2:
+                xk_next = xk + tk / 2 * dk
+                tk /= 2
+            return xk_next, iter_cnt, fvals, times
+        if np.linalg.norm(grad_next, ord=2) <= epsilon:
+            return xk_next, iter_cnt, fvals, times
+        
+        # print(f'Iteration {iter_cnt} - grad_norm:',np.linalg.norm(grad_next),"tk:",tk, "x_norm:",np.linalg.norm(xk_next))
         # mat_k = np.linalg.inv(f_hessian(xk_next))
         mat_k = update_approximation_bfgs(mat=mat_k, sk=sk, yk=grad_next-grad_k)
         xk = xk_next
-    return xk_next, iter_cnt, fvals
+    return xk_next, iter_cnt, fvals, times
 
 
-def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_eps: float, params: dict,x_k: np.ndarray,gamma_k: float, isbfgs: bool) -> np.ndarray:
+def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_eps: float, params: dict,x_k: np.ndarray,gamma_k: float, isbfgs: bool, t_s: float) -> np.ndarray:
     n = g.shape[0]
-    x_opt_ipm_damped, t_ipm_damped, duality_gaps_damped, fvals_damped = barrier_method(t_init=params['t_init'], f=lambda x:f_int(x,params,x_k,gamma_k),
+    x_opt_ipm_damped, t_ipm_damped, duality_gaps_damped, fvals_, times_= barrier_method(t_init=params['t_init'], f=lambda x:f_int(x,params,x_k,gamma_k),
                             f_grad=lambda x:f_int_grad(x,params,x_k,gamma_k), f_hessian=lambda x:f_int_hess(x,params,x_k,gamma_k), phi=phi, phi_grad=phi_grad,
                             phi_hessian=phi_hessian, 
-                A=params['A_o'], b=params['b'], x0=x_k, D=2*params['R'], num_constraints=1, method='bfgs' if isbfgs else 'newton', mu=10, epsilon=params['inner_eps'], maxIter=20)
-    return x_opt_ipm_damped
+                A=params['A_o'], b=params['b'], x0=x_k, D=2*params['R'], num_constraints=1, params=params, t_s=t_s, method='bfgs' if isbfgs else 'newton', mu=10, epsilon=params['inner_eps'], maxIter=20)
+    return x_opt_ipm_damped, fvals_, times_
 
 
 def contracting_newton(params, c_0, decrease_gamma, isbfgs):
@@ -258,11 +272,12 @@ def contracting_newton(params, c_0, decrease_gamma, isbfgs):
     m = params['A'].shape[0]
     inv_m = 1.0 / m
     data_accesses = m
-
+    global num_newton
+    num_newton=0
     x_k = params['x_0'].copy()
     fval_prev = np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
-    func_val_record = [fval_prev]
-    time_record=[t_s]
+    func_val_record = []
+    time_record=[]
     # Ax = params['A'].dot(x_k)
     Ax = params['A']@x_k
     g_k = np.zeros(n)
@@ -286,14 +301,15 @@ def contracting_newton(params, c_0, decrease_gamma, isbfgs):
         g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k)
         grad_norm=np.linalg.norm(g_k) 
         
-        if (np.linalg.norm(g_k)<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<0.01*params['outer_eps'])):
+        if (np.linalg.norm(g_k)<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<0.1*params['outer_eps'])):
             break
         H_k = (inv_m ) * (params['A'].T.dot(((1 / (1 + np.exp(-Ax))) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A'])) + inv_m*2*params['lambda']*np.diag([1.0]*x_k.size)
 
         # g_k -= H_k.dot(x_k)
 
-        v_k = minimize_quadratic_on_l2_ball(g_k, H_k, params['R'], params['inner_eps'],params,x_k,gamma_k,isbfgs)
-
+        v_k, fvals, times = minimize_quadratic_on_l2_ball(g_k, H_k, params['R'], params['inner_eps'],params,x_k,gamma_k,isbfgs,t_s)
+        func_val_record.extend(fvals.tolist())
+        time_record.extend(times.tolist())
         x_k += gamma_k * (v_k - x_k)
         fval_prev=fval
         fval = np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
@@ -303,6 +319,7 @@ def contracting_newton(params, c_0, decrease_gamma, isbfgs):
         data_accesses += m
         pbar.set_description('Function value: %.8f / Grad norm: %.8f'%(fval,grad_norm))
         # print("function value:",np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2)
-    # print("Done.")
+    print(f"Num newton:{num_newton}.")
+    pbar.close()
     t_e=time()
     return x_k, t_e-t_s, np.array(func_val_record),np.array(time_record)

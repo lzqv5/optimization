@@ -75,7 +75,7 @@ def h_trid(A):
 
     return Anew,finalP
 
-
+num_newton=0
 
 def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_eps: float) -> np.ndarray:
     n = g.shape[0]
@@ -95,6 +95,8 @@ def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_
     # print(np.linalg.norm(diag),"\t",np.linalg.norm(subdiag),"\t",np.linalg.norm(g_))
     N_LINE_SEARCH_ITERS = 100
     for i in range(N_LINE_SEARCH_ITERS + 1):
+        global num_newton
+        num_newton+=1
         if i == N_LINE_SEARCH_ITERS:
             print("W: Preliminaty line search iterations exceeded in MinimizeQuadraticOnL2Ball")
             break
@@ -130,7 +132,8 @@ def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_
 
 def contracting_newton(params, c_0, decrease_gamma):
     t_s = time()
-
+    global num_newton
+    num_newton=0
     n = params['A'].shape[1]
     m = params['A'].shape[0]
     inv_m = 1.0 / m
@@ -160,7 +163,7 @@ def contracting_newton(params, c_0, decrease_gamma):
         # print("Round:",k,flush=True)
         g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k) 
         grad_norm=np.linalg.norm(g_k)
-        if grad_norm<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<0.01*params['outer_eps']):
+        if grad_norm<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<0.1*params['outer_eps']):
             break
 
 
@@ -179,5 +182,6 @@ def contracting_newton(params, c_0, decrease_gamma):
         pbar.set_description('Function value: %.8f / Grad norm: %.8f'%(fval,grad_norm))
         # print("function value:",np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2)
     # print("Done.")
+    print(f"# 1-D Newton Iterations:{num_newton}.")
     t_e=time()
     return x_k, t_e-t_s, np.array(func_val_record),np.array(time_record)

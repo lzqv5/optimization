@@ -74,6 +74,7 @@ def barrier_method(t_init, f, f_grad, f_hessian, phi, phi_grad, phi_hessian, A, 
             break
         t *= mu
     t_e = time()
+    print(f"Num newton:{len(func_val_record)}.")
     return xt, t_e-t_s, np.array(duality_gaps), np.array(func_val_record),np.array(time_record)
 
 #* 中心问题求解
@@ -127,7 +128,12 @@ def bfgs(objective, f, f_grad, f_hessian, x0, D, alpha=0.1, beta=0.5, epsilon=1e
         xk_next = xk + sk
         grad_next = f_grad(xk_next)
         # if np.linalg.norm(grad_next, ord=2) <= epsilon:
-        if np.linalg.norm(grad_next, ord=2) <= epsilon or np.linalg.norm(xk_next)>=D/2-1e-2:
+        if np.linalg.norm(xk_next)>=D/2-1e-2:
+            while np.linalg.norm(xk_next)>=D/2-1e-2:
+                xk_next = xk + tk / 2 * dk
+                tk /= 2
+            return xk_next, iter_cnt, fvals, times
+        if np.linalg.norm(grad_next, ord=2) <= epsilon:
             return xk_next, iter_cnt, fvals, times
         # print(f'Iteration {iter_cnt} - grad_norm:',np.linalg.norm(grad_next),"tk:",tk, "x_norm:",np.linalg.norm(xk_next))
         # mat_k = np.linalg.inv(f_hessian(xk_next))
@@ -227,11 +233,12 @@ def projected_gradient_descent(f, f_grad, x0, D, t_hat=1, epsilon=1e-6, max_iter
         # print(f'Iteration {idx} - Grad. Norm.:',grad_norm_next, 'Norm. Diff.:',norm_diff,'tk:',tk, 'x_norm:',np.linalg.norm(xk_next))
         xk = xk_next
     t_e = time()
+    print(f"Num gradient:{len(func_val_record)}.")
     # return xk_next, t_e-t_s, np.array(func_val_record), np.array(grad_norm_record)
     return xk_next, t_e-t_s, np.array(func_val_record),np.array(time_record)
 
 def write_tsv(fvals, times, fopt, filep):
-    with open('filep','w') as f:
+    with open(filep,'w') as f:
         f.write('Iter\tf-f*\tTime\n')
         for i in range(fvals.shape[0]):
             f.write('%d\t%.8f\t%.4f\n'%(i,fvals[i]-fopt,times[i]))
@@ -243,6 +250,7 @@ parser.add_argument('--diameter', type=float, required=True)
 parser.add_argument('--lamda', type=float, required=True)
 # parser.add_argument('--batch_size', type=int, required=True)
 parser.add_argument('--rm_zeros', type=int, required=True)
+parser.add_argument('--maxiter', type=int, default=200)
 args = parser.parse_args()
 
 # e.g. python run_baselines.py --data_path w8a --save_path D_20_test.json --diameter 20 --lamda 100 --rm_zeros 0
@@ -250,6 +258,7 @@ args = parser.parse_args()
 if __name__ == "__main__":
     data_path = args.data_path
     output_path = args.save_path
+    max_iter=args.maxiter
     D = args.diameter
     lamda = args.lamda
     # batch_size = args.batch_size
@@ -265,12 +274,13 @@ if __name__ == "__main__":
     params['b']=b
     # print(params['A'][0,:])
     print(np.sum(A==params['A']))
-    params['x_0']=np.zeros(n)
+    # params['x_0']=np.zeros(n)
     c_0 = 3.0
     params['R']=D/2
     params['inner_eps']=1e-7
     params['outer_eps']=1e-6
-    params['n_iters']=100
+    params['n_iters']=max_iter
+    # params['n_iters_newton']=800
     params['lambda']=1/lamda
     params['t_init']=1
     history=None
@@ -294,7 +304,8 @@ if __name__ == "__main__":
     
     #* logarithm barrier
     def phi(x,D):
-        return -np.log(D/2-np.linalg.norm(x,ord=2))
+        real = D/2-np.linalg.norm(x,ord=2)
+        return -np.log(real) if real>0 else float("inf")
         # return -np.log(D**2/4-x@x)
 
     def phi_grad(x,D):
@@ -309,30 +320,12 @@ if __name__ == "__main__":
         return np.eye(x.size)/(x_norm*(D/2-x_norm)) + (2*x_norm-D/2)/(x_norm**3 * (D/2-x_norm)**2)*xxT
         # return 4/((D**2-xTx)**2)*xxT + 8/(D**2-4*x@x)*np.eye(x.size)
     
-    #* Contracting Newton
-    np.random.seed(seed)
-    params['x_0'] = np.zeros(n)+0.005
-    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
-    x_opt_ctr, t_ctr, fvals_ctr, time_ctr = cn.contracting_newton(params, c_0, decrease_gamma)
-    print(f'收缩域牛顿法 - 最小值: {f(x_opt_ctr):>2f}\t耗时: {t_ctr:>2f}s')
-    #* Contracting Newton (IPM-Newton)
-    np.random.seed(seed)
-    params['x_0'] = np.zeros(n)+0.005
-    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
-    x_opt_ctr_ipm, t_ctr_ipm, fvals_ctr_ipm, time_ctr_ipm = ci.contracting_newton(params, c_0, decrease_gamma, False)
-    print(f'收缩域牛顿法(内点法) - 最小值: {f(x_opt_ctr_ipm):>2f}\t耗时: {t_ctr_ipm:>2f}s')
-    #* Contracting Newton (IPM-BFGS)
-    np.random.seed(seed)
-    params['x_0'] = np.zeros(n)+0.005
-    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
-    x_opt_ctr_bfgs, t_ctr_bfgs, fvals_ctr_bfgs, time_ctr_bfgs = ci.contracting_newton(params, c_0, decrease_gamma, True)
-    print(f'收缩域牛顿法(内点法BFGS) - 最小值: {f(x_opt_ctr_bfgs):>2f}\t耗时: {t_ctr_bfgs:>2f}s')
     #* 高精度 - 求解问题最优解
     np.random.seed(seed)
     t_init = 1
     x0 = np.zeros(n)+0.005
     x_opt, t, _, _,_ = barrier_method(t_init=t_init, f=f, f_grad=f_grad, f_hessian=f_hessian, phi=phi, phi_grad=phi_grad, phi_hessian=phi_hessian, 
-                    A=A, b=b, x0=x0, D=D, num_constraints=1, method='newton', mu=10, epsilon=1e-10, maxIter=20)
+                    A=A, b=b, x0=x0, D=D, num_constraints=1, method='newton', mu=10, epsilon=1e-10, maxIter=max_iter//5)
     print(f'求解问题最优解 - 最小值: {f(x_opt):>2f}\t耗时: {t:>2f}s')
 
     #* Damped Newton
@@ -340,7 +333,7 @@ if __name__ == "__main__":
     t_init = 1
     x0 = np.zeros(n)+0.005
     x_opt_ipm_damped, t_ipm_damped, duality_gaps_damped, fvals_damped, times_damped = barrier_method(t_init=t_init, f=f, f_grad=f_grad, f_hessian=f_hessian, phi=phi, phi_grad=phi_grad, phi_hessian=phi_hessian, 
-                    A=A, b=b, x0=x0, D=D, num_constraints=1, method='newton', mu=10, epsilon=1e-6, maxIter=20)
+                    A=A, b=b, x0=x0, D=D, num_constraints=1, method='newton', mu=10, epsilon=1e-6, maxIter=max_iter//10)
     print(f'阻尼牛顿 - 最小值: {f(x_opt_ipm_damped):>2f}\t耗时: {t_ipm_damped:>2f}s')
 
     #* Quasi Newton - BFGS
@@ -348,15 +341,32 @@ if __name__ == "__main__":
     t_init = 1
     x0 = np.zeros(n)+0.005
     x_opt_ipm_bfgs, t_ipm_bfgs, duality_gaps_bfgs, fvals_bfgs, times_bfgs = barrier_method(t_init=t_init, f=f, f_grad=f_grad, f_hessian=f_hessian, phi=phi, phi_grad=phi_grad, phi_hessian=phi_hessian, 
-                    A=A, b=b, x0=x0, D=D, num_constraints=1, method='bfgs', mu=10, epsilon=1e-6, maxIter=20)
+                    A=A, b=b, x0=x0, D=D, num_constraints=1, method='bfgs', mu=10, epsilon=1e-6, maxIter=max_iter//10)
     print(f'拟牛顿 BFGS - 最小值: {f(x_opt_ipm_bfgs):>2f}\t耗时: {t_ipm_bfgs:>2f}s')
 
     #* Projectd gd
     np.random.seed(seed)
     init_x = np.zeros(n)+0.005
-    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
-    x_opt_pgd, t_pgd, fvals_pgd, times_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=100)
+    x_opt_pgd, t_pgd, fvals_pgd, times_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=max_iter)
     print(f'投影次梯度 - 最小值: {f(x_opt_pgd):>2f}\t耗时: {t_pgd:>2f}s')
+
+    #* Contracting Newton
+    np.random.seed(seed)
+    params['x_0'] = np.zeros(n)+0.005
+    x_opt_ctr, t_ctr, fvals_ctr, time_ctr = cn.contracting_newton(params, c_0, decrease_gamma)
+    print(f'收缩域牛顿法 - 最小值: {f(x_opt_ctr):>2f}\t耗时: {t_ctr:>2f}s')
+    #* Contracting Newton (IPM-Newton)
+    np.random.seed(seed)
+    params['x_0'] = np.zeros(n)+0.005
+    x_opt_ctr_ipm, t_ctr_ipm, fvals_ctr_ipm, time_ctr_ipm = ci.contracting_newton(params, c_0, decrease_gamma, False)
+    print(f'收缩域牛顿法(内点法) - 最小值: {f(x_opt_ctr_ipm):>2f}\t耗时: {t_ctr_ipm:>2f}s')
+    #* Contracting Newton (IPM-BFGS)
+    # np.random.seed(seed)
+    # params['x_0'] = np.zeros(n)+0.005
+    # x_opt_ctr_bfgs, t_ctr_bfgs, fvals_ctr_bfgs, time_ctr_bfgs = ci.contracting_newton(params, c_0, decrease_gamma, True)
+    # print(f'收缩域牛顿法(内点法BFGS) - 最小值: {f(x_opt_ctr_bfgs):>2f}\t耗时: {t_ctr_bfgs:>2f}s')
+
+
 
     # 保存计算迭代的计算结果
     results = {
@@ -365,7 +375,7 @@ if __name__ == "__main__":
         'gd': (fvals_pgd.tolist(), t_pgd, x_opt_pgd.tolist()),
         'contr': (fvals_ctr.tolist(), t_ctr, x_opt_ctr.tolist()),
         'contripm': (fvals_ctr_ipm.tolist(), t_ctr_ipm, x_opt_ctr_ipm.tolist()),
-        'contrbfgs': (fvals_ctr_bfgs.tolist(), t_ctr_bfgs, x_opt_ctr_bfgs.tolist()),
+        # 'contrbfgs': (fvals_ctr_bfgs.tolist(), t_ctr_bfgs, x_opt_ctr_bfgs.tolist()),
         'fval_opt': f(x_opt)
     }    
     fopt=f(x_opt)
@@ -375,4 +385,4 @@ if __name__ == "__main__":
     write_tsv(fvals_pgd,times_pgd,fopt,output_path+".pgd.tsv")
     write_tsv(fvals_ctr,time_ctr,fopt,output_path+".ctr.tsv")
     write_tsv(fvals_ctr_ipm,time_ctr_ipm,fopt,output_path+".ctripm.tsv")
-    write_tsv(fvals_ctr_bfgs,time_ctr_bfgs,fopt,output_path+".ctrbfgs.tsv")
+    # write_tsv(fvals_ctr_bfgs,time_ctr_bfgs,fopt,output_path+".ctrbfgs.tsv")
