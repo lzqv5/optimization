@@ -188,6 +188,7 @@ def contracting_newton(params, c_0, decrease_gamma, variance_reduction):
         obj_indices=np.arange(m)
         k_sqr = (k + 1) * (k + 1)
         batch_size = k_sqr if k_sqr < m else m
+        # batch_size=8192
         if batch_size == m:
             print("W: batch_size equals m")
             return
@@ -195,12 +196,16 @@ def contracting_newton(params, c_0, decrease_gamma, variance_reduction):
         # if k!=0:
         batch = obj_indices[:batch_size].copy()
         A_batch=params['A'][batch,:]
+        # print(A_batch.shape)
         A_batchx=A_batch@x_k
-        A_batchz=A_batch@z_k
+        sigax=(np.array([Sigmoid(ax) for ax in A_batchx]))
+        if variance_reduction:
+            A_batchz=A_batch@z_k
         inv_bs = 1/batch_size
-        g_k = inv_bs * (A_batch.T.dot(np.array([Sigmoid(ax) for ax in A_batchx])))+inv_m*2*params['lambda']*x_k
-        g_k+=full_g_k-inv_bs * (A_batch.T.dot(np.array([Sigmoid(az) for az in A_batchz])))
-        H_k = (inv_bs * gamma_k) * (A_batch.T.dot(((np.array([Sigmoid(ax) for ax in A_batchx])) * (1 - np.array([Sigmoid(ax) for ax in A_batchx])))[:, np.newaxis] * A_batch)) + (inv_m * gamma_k)*2*params['lambda']*np.diag([1.0]*x_k.size)
+        g_k = inv_bs * (A_batch.T.dot(sigax))+inv_m*2*params['lambda']*x_k
+        if variance_reduction:
+            g_k+=full_g_k-inv_bs * (A_batch.T.dot(np.array([Sigmoid(az) for az in A_batchz])))
+        H_k = (inv_bs * gamma_k) * (A_batch.T.dot(( sigax * (1 - sigax))[:, np.newaxis] * A_batch)) + (inv_m * gamma_k)*2*params['lambda']*np.diag([1.0]*n)
         grad_norm=np.linalg.norm(g_k)
         g_k -= H_k.dot(x_k)
 
@@ -208,13 +213,13 @@ def contracting_newton(params, c_0, decrease_gamma, variance_reduction):
 
         x_k += gamma_k * (v_k - x_k)
         Ax = params['A'].dot(x_k)
-        data_accesses += m
+        data_accesses += batch_size
         fval_prev=fval
-        fval = np.average(np.array([Log_one_exp(ax) for ax in params['A']@x_k]))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
+        fval = np.average(np.array([Log_one_exp(ax) for ax in Ax]))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
         func_val_record.append(fval)
         epoch_record.append(data_accesses//m)
         time_record.append(time()-t_s)
         pbar.set_description(f'Epoch {data_accesses/m} - Function value: %.8f / Grad norm: %.8f'%(fval,grad_norm))
         # print("function value:",np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2)
     # print("Done.")
-    return x_k,func_val_record,time_record,epoch_record
+    return x_k,np.asarray(func_val_record),np.asarray(time_record),np.asarray(epoch_record)

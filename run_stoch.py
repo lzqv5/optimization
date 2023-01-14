@@ -107,7 +107,7 @@ parser.add_argument('--lamda', type=float, required=True)
 # parser.add_argument('--batch_size', type=int, required=True)
 parser.add_argument('--rm_zeros', type=int, required=True)
 parser.add_argument('--convert', type=int, default=1)
-parser.add_argument('--maxiter', type=int, default=444)
+parser.add_argument('--maxiter', type=int, default=400)
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     params['R']=D/2
     params['inner_eps']=1e-7
     params['outer_eps']=1e-4
-    params['n_iters']=max_iter # 444次Doikov迭代相当于50个convtype epoch
+    params['n_iters']=max_iter # 400次Doikov迭代相当于50个convtype epoch
     # params['n_iters_newton']=800
     params['lambda']=1/lamda
     params['t_init']=1
@@ -193,36 +193,39 @@ if __name__ == "__main__":
             idx_end = (i+1)*batch_size
             yield (A[idx_begin:idx_end], b[idx_begin:idx_end])
 
-    #* 高精度 - 求解问题最优解
+   #* 高精度 - 求解问题最优解
     np.random.seed(seed)
     t_init = 1
-    x0 = np.zeros(n)+0.005
+    x0 = np.zeros(n)+0.001
     x_opt, t, _, _,_ = barrier_method(t_init=t_init, f=lambda x:f(x,A,b), f_grad=lambda x:f_grad(x,A,b), f_hessian=lambda x:f_hessian(x,A,b), phi=phi, phi_grad=phi_grad, phi_hessian=phi_hessian, 
                     A=A, b=b, x0=x0, D=D, num_constraints=1, method='newton', mu=10, epsilon=1e-10, maxIter=20)
     print(f'求解问题最优解 - 最小值: {f(x_opt,A,b):>2f}\t耗时: {t:>2f}s')
+    fopt = f(x_opt,A,b)
+    # print(f(x0,A,b))
     # 投影法
     np.random.seed(1000)
-    init_x = np.ones(n)
+    init_x = np.zeros(n)+0.001
     x_opt_spgd, fvals_spgd, t_spgd,times_spgd = projected_sgd(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-4, epochs=50)
     print(f'最小值: {f(x_opt_spgd,A,b):>2f}\t耗时: {t_spgd:>2f}s')
     # 投影法（方差缩减）
     np.random.seed(1000)
-    init_x = np.ones(n)
+    init_x = np.zeros(n)+0.001
     x_opt_spgd_vr, fvals_spgd_vr, t_spgd_vr,times_spgd_vr = projected_sgd(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-4, epochs=50, variance_reduction=True)
     print(f'最小值: {f(x_opt_spgd_vr,A,b):>2f}\t耗时: {t_spgd_vr:>2f}s')
-    # 收缩域牛顿（方差缩减）
-    np.random.seed(1000)
-    init_x = np.ones(n)
-    params['x_0']=init_x
-    x_opt_vtr_vr,fvals_ctr_vr, times_ctr_vr, epochs_ctr_vr = cns.contracting_newton(params, c_0, decrease_gamma, True)
-    print(f'最小值: {f(x_opt_vtr_vr,A,b):>2f}\t耗时: {times_ctr_vr[-1]:>2f}s')
+
     # 收缩域牛顿（无方差缩减）
     np.random.seed(1000)
-    init_x = np.ones(n)
+    init_x = np.zeros(n)+0.001
     params['x_0']=init_x
     x_opt_vtr,fvals_ctr, times_ctr, epochs_ctr = cns.contracting_newton(params, c_0, decrease_gamma, False)
     print(f'最小值: {f(x_opt_vtr,A,b):>2f}\t耗时: {times_ctr[-1]:>2f}s')
-    fopt = f(x_opt,A,b)
+    # 收缩域牛顿（方差缩减）
+    np.random.seed(1000)
+    init_x = np.zeros(n)+0.001
+    params['x_0']=init_x
+    x_opt_vtr_vr,fvals_ctr_vr, times_ctr_vr, epochs_ctr_vr = cns.contracting_newton(params, c_0, decrease_gamma, True)
+    print(f'最小值: {f(x_opt_vtr_vr,A,b):>2f}\t耗时: {times_ctr_vr[-1]:>2f}s')
+ 
 
     write_tsv(fvals_spgd,times_spgd,fopt,args.save_path+".spgd.csv")
     write_tsv(fvals_spgd_vr,times_spgd_vr,fopt,args.save_path+".spgd_vr.csv")
