@@ -6,7 +6,8 @@ import cvxpy as cp
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
+# import scipy as sp
+from scipy.linalg import hessenberg
 def read_data(path):
     b, A = svm_read_problem(path)
     rows = len(b)   # 矩阵行数, i.e. sample 数
@@ -20,12 +21,12 @@ def read_data(path):
     # 清楚全 0 features
     effective_row_ids = []
     for idx, row in enumerate(A_np):
-        if True or np.sum(row) > 1e-3:
+        if   True or np.sum(row) > 1e-3:
             effective_row_ids.append(idx)
     return b[effective_row_ids], A_np[effective_row_ids]
 
 
-def solve_tridiagonal_system(diag: np.ndarray, subdiag: np.ndarray, tau: float, b: np.ndarray, x: np.ndarray, buffer: np.ndarray) -> np.ndarray:
+def solve_tridiagonal_system(diag: np.ndarray, subdiag: np.ndarray, tau: float, b: np.ndarray) -> np.ndarray:
     n = diag.shape[0]
     c = np.zeros(n - 1)
     d = np.zeros(n)
@@ -42,36 +43,7 @@ def solve_tridiagonal_system(diag: np.ndarray, subdiag: np.ndarray, tau: float, 
 
     return d
 
-
-# def tridiag(A):
-#     n=A.shape[0]
-#     v=np.zeros((n,1))
-#     p=np.ones((n,n))
-#     finalp=np.zeros((n,n))
-#     a1=np.zeros((n,n))
-#     a=A
-#     for k in range(1,n-1):
-#         r=0
-#         for l in range(k,n):
-#             r=r+a[k-1,l]*a[k-1,l]
-#         r=r**0.5
-#         if r*a[k-1,k]>0:
-#             r=-r
-#         if r==0:
-#             continue
-#         h=-1.0/(r*r-r*a[k-1,k])
-#         v[:]=0
-#         v[k,0]=a[k-1,k]-r
-#         for l in range(k+2,n+1):
-#             v[l-1,0]=a[k-1,l-1]
-#         p=np.dot(v,np.transpose(v))*h
-#         for l in range(1,n+1):
-#             p[l-1,l-1]=p[l-1,l-1]+1.0
-#         a1=np.dot(p,a)
-#         a=np.dot(a1,p)
-#         finalp=np.dot(finalp,p)
-#     return a,finalp
-
+2 * np.finfo(float).eps
 def ss(A, jj):
     """Subfunction for h_trid."""
     return np.sqrt(np.sum(A[jj + 1:, jj] ** 2))
@@ -86,59 +58,54 @@ def h_trid(A):
         raise ValueError("Matrix must be square symmetric only, see help.")
 
     lngth = len(A)  # Preallocations.
-    v = np.zeros((lngth,1))
+    v = np.zeros(lngth)
     I = np.eye(lngth)
     Aold = A
     finalP=np.eye(lngth)
-    nv=0
     for jj in range(lngth - 2):  # Build each vector j and run the whole procedure.
-        v[:jj+1,0] = 0
+        v[:jj+1] = 0
         S = ss(Aold, jj)
-        v[jj + 1,0] = np.sqrt(0.5 * (1 + abs(Aold[jj + 1, jj]) / (S + 2 * np.finfo(float).eps)))
-        v[jj + 2:,0] = Aold[jj + 2:, jj] * np.sign(Aold[jj + 1, jj]) / (2 * v[jj + 1] * S + 2 * np.finfo(float).eps)
-        nv=np.linalg.norm(v)
-        print("Norm:",np.linalg.norm(v))
-        P = I - 2 * v@v.T
-        if np.max(np.abs(P))>2:
-            print(np.max(np.abs(P)),flush=True)
+        v[jj + 1] = np.sqrt(0.5 * (1 + abs(Aold[jj + 1, jj]) / (S+2 * np.finfo(float).eps)))
+        v[jj + 2:] = Aold[jj + 2:, jj] * np.sign(Aold[jj + 1, jj]) / (2 * v[jj + 1] * S+2 * np.finfo(float).eps )
+        P = I - 2 * np.outer(v, v)
         Anew = P @ Aold @ P
         Aold = Anew
         finalP=finalP@P
-    Anew[abs(Anew) < 5e-14] = 0  # Tolerance.
+    # Anew[abs(Anew) < 5e-14] = 0  # Tolerance.
 
-    return Anew,finalP.T
+    return Anew,finalP
 
 
 
 def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_eps: float) -> np.ndarray:
     n = g.shape[0]
-    np.savetxt("matrix.txt",H)
-    H_tridiag, Q = h_trid(H)
-    # print(H_tridiag)
+    # np.savetxt('hess.txt',H)
+    # print(np.linalg.norm(H))
+    H_tridiag, Q = hessenberg(H,calc_q=True)
     diag = np.diag(H_tridiag)
     subdiag = np.diag(H_tridiag, k=-1)
-    print("Other:",sum(np.diag(H_tridiag, k=-2))+sum(np.diag(H_tridiag, k=2)),flush=True)
+    # print("Other:",np.sum(H_tridiag)-np.sum(diag)-np.sum(subdiag)*2,flush=True)
     g_ = Q.T.dot(g)
 
     tau = 1.0
     S_tau = np.zeros(n)
-    buffer = np.zeros(n - 1)
     S_tau_norm = 0.0
     phi_tau = 0.0
-
+    # print(np.linalg.norm(H_tridiag))
+    # print(np.linalg.norm(diag),"\t",np.linalg.norm(subdiag),"\t",np.linalg.norm(g_))
     N_LINE_SEARCH_ITERS = 100
     for i in range(N_LINE_SEARCH_ITERS + 1):
         if i == N_LINE_SEARCH_ITERS:
             print("W: Preliminaty line search iterations exceeded in MinimizeQuadraticOnL2Ball")
             break
 
-        S_tau = solve_tridiagonal_system(diag, subdiag, tau, g_, S_tau, buffer)
+        S_tau = solve_tridiagonal_system(diag, subdiag, tau, g_)
         S_tau_norm = np.linalg.norm(S_tau)
         phi_tau = 1.0 / S_tau_norm - 1.0 / R
         if phi_tau < inner_eps or tau < inner_eps:
             break
         tau *= 0.5
-
+    # print("phi_tau:",phi_tau)
     if phi_tau < -inner_eps:
         S_tau_grad = np.zeros(n)
         for i in range(N_LINE_SEARCH_ITERS + 1):
@@ -146,12 +113,11 @@ def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_
                 print("W: 1-D Newton iterations exceeded in MinimizeQuadraticOnL2Ball")
                 break
 
-            S_tau_grad = solve_tridiagonal_system(diag, subdiag, tau, g_, S_tau, buffer)
-            S_tau_norm = np.linalg.norm(S_tau)
+            S_tau_grad = solve_tridiagonal_system(diag, subdiag, tau, S_tau)
             phi_tau_prime = (1.0 / S_tau_norm**3) * (S_tau.T.dot(S_tau_grad))
             tau -= phi_tau / phi_tau_prime
 
-            S_tau = solve_tridiagonal_system(diag, subdiag, tau, g_, S_tau, buffer)
+            S_tau = solve_tridiagonal_system(diag, subdiag, tau, g_)
             S_tau_norm = np.linalg.norm(S_tau)
             phi_tau = 1.0 / S_tau_norm - 1.0 / R
 
@@ -161,10 +127,8 @@ def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_
     return -Q.dot(S_tau)
 
 
-def contracting_newton(params, c_0, decrease_gamma, history):
-    # start_time = time.perf_counter()
-    # last_logging_time = start_time
-    # last_display_time = start_time
+def contracting_newton(params, c_0, decrease_gamma):
+    t_s = time()
 
     n = params['A'].shape[1]
     m = params['A'].shape[0]
@@ -172,6 +136,8 @@ def contracting_newton(params, c_0, decrease_gamma, history):
     data_accesses = m
 
     x_k = params['x_0'].copy()
+    func_val_record = [np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2]
+    time_record=[t_s]
     # Ax = params['A'].dot(x_k)
     Ax = params['A']@x_k
     g_k = np.zeros(n)
@@ -181,22 +147,11 @@ def contracting_newton(params, c_0, decrease_gamma, history):
     gamma_str = f"gamma_k = {c_0}"
     if decrease_gamma:
         gamma_str += " / (3 + k)"
-    print(f"Contracting Newton Method, {gamma_str}")
-    for k in range(params['n_iters'] + 1):
+    # print(f"Contracting Newton Method, {gamma_str}")
+    pbar=tqdm(range(params['n_iters'] ))
+    for k in pbar:
         to_finish = False
-        # update_history(
-        #     params,
-        #     start_time,
-        #     k,
-        #     data_accesses,
-        #     lambda: float('inf') if x_k.norm() > params['R'] + 1e-5 else inv_m * np.logaddexp(Ax, 0).sum(),
-        #     last_logging_time,
-        #     last_display_time,
-        #     history,
-        #     to_finish
-        # )
-        print(np.linalg.norm(g_k))
-        if to_finish or (k>=1 and np.linalg.norm(g_k)<params['outer_eps']):
+        if to_finish or (k>=1 and grad_norm<params['outer_eps']):
             break
 
         gamma_k = c_0
@@ -204,9 +159,10 @@ def contracting_newton(params, c_0, decrease_gamma, history):
             gamma_k /= 3.0 + k
             # gamma_k=c_0*(1-(k/(k+1))**3)
             # print("Gamma_k=",gamma_k)
-        print("Round:",k,flush=True)
-        g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax))))
-        H_k = (inv_m * gamma_k) * (params['A'].T.dot((1 / (1 + np.exp(-Ax)) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A']))
+        # print("Round:",k,flush=True)
+        g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k) 
+        grad_norm=np.linalg.norm(g_k)
+        H_k = (inv_m * gamma_k) * (params['A'].T.dot(((1 / (1 + np.exp(-Ax))) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A'])) + (inv_m * gamma_k)*2*params['lambda']*np.diag([1.0]*x_k.size)
         g_k -= H_k.dot(x_k)
 
         v_k = minimize_quadratic_on_l2_ball(g_k, H_k, params['R'], params['inner_eps'])
@@ -214,26 +170,11 @@ def contracting_newton(params, c_0, decrease_gamma, history):
         x_k += gamma_k * (v_k - x_k)
         Ax = params['A'].dot(x_k)
         data_accesses += m
-    print("Done.")
-
-
-b, A = read_data('w8a')
-# b, A = read_data('ijcnn1.test')
-# b, A = read_data('a9a.test')
-# b, A = read_data('CINA.test')
-m,n = A.shape
-print(m,n)
-# b=np.expand_dims(b, axis=1)
-params=dict()
-params['A']=-np.multiply(b,A.T).T
-# print(params['A'][0,:])
-print(np.sum(A==params['A']))
-params['x_0']=np.zeros(n)
-c_0 = 3.0
-params['R']=10
-params['inner_eps']=1e-5
-params['outer_eps']=1e-5
-params['n_iters']=0
-history=None
-decrease_gamma=True
-contracting_newton(params, c_0, decrease_gamma, history)
+        fval = np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
+        func_val_record.append(fval)
+        time_record.append(time()-t_s)
+        pbar.set_description('Function value: %.8f / Grad norm: %.8f'%(fval,grad_norm))
+        # print("function value:",np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2)
+    # print("Done.")
+    t_e=time()
+    return x_k, t_e-t_s, np.array(func_val_record),np.array(time_record)
