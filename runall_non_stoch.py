@@ -121,7 +121,7 @@ def bfgs(objective, f, f_grad, f_hessian, x0, D, alpha=0.1, beta=0.5, epsilon=1e
         dk = -mat_k@grad_k 
         tk = wolfe_condition(f, f_grad, xk, dk, D, c1=1e-4, c2=0.9)
         if tk<0:
-            return xk, iter_cnt-1, fvals
+            return xk, iter_cnt-1, fvals,times
         fvals.append(objective(xk))
         times.append(time())
         sk = tk*dk
