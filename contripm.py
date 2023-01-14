@@ -92,7 +92,9 @@ def barrier_method(t_init, f, f_grad, f_hessian, phi, phi_grad, phi_hessian, A, 
     duality_gaps = []
     func_val_record = []
     t_s = time()
-    for i in range(maxIter):
+    pbar=tqdm(range(maxIter))
+    pbar.set_description('内点法')
+    for i in pbar:
         xt,num_newton_step, fvals = solve_central(objective=f,
                                 f=lambda x:t*f(x)+phi(x,D), 
                                 f_grad=lambda x:t*f_grad(x)+phi_grad(x,D), 
@@ -258,7 +260,8 @@ def contracting_newton(params, c_0, decrease_gamma, isbfgs):
     data_accesses = m
 
     x_k = params['x_0'].copy()
-    func_val_record = [np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2]
+    fval_prev = np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
+    func_val_record = [fval_prev]
     time_record=[t_s]
     # Ax = params['A'].dot(x_k)
     Ax = params['A']@x_k
@@ -271,42 +274,34 @@ def contracting_newton(params, c_0, decrease_gamma, isbfgs):
         gamma_str += " / (3 + k)"
     # print(f"Contracting Newton Method, {gamma_str}")
     pbar=tqdm(range(params['n_iters'] ))
+    fval = fval_prev
+    
     for k in pbar:
-        to_finish = False
-        # update_history(
-        #     params,
-        #     start_time,
-        #     k,
-        #     data_accesses,
-        #     lambda: float('inf') if x_k.norm() > params['R'] + 1e-5 else inv_m * np.logaddexp(Ax, 0).sum(),
-        #     last_logging_time,
-        #     last_display_time,
-        #     history,
-        #     to_finish
-        # )
-        # print(np.linalg.norm(g_k))
-        if to_finish or (k>=1 and np.linalg.norm(g_k)<params['outer_eps']):
-            break
-
         gamma_k = c_0
         if decrease_gamma:
             gamma_k /= 3.0 + k
             # gamma_k=c_0*(1-(k/(k+1))**3)
             # print("Gamma_k=",gamma_k)
         # print("Round:",k,flush=True)
-        g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k) 
+        g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k)
+        grad_norm=np.linalg.norm(g_k) 
+        
+        if (np.linalg.norm(g_k)<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<params['outer_eps'])):
+            break
         H_k = (inv_m ) * (params['A'].T.dot(((1 / (1 + np.exp(-Ax))) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A'])) + inv_m*2*params['lambda']*np.diag([1.0]*x_k.size)
+
         # g_k -= H_k.dot(x_k)
 
         v_k = minimize_quadratic_on_l2_ball(g_k, H_k, params['R'], params['inner_eps'],params,x_k,gamma_k,isbfgs)
 
         x_k += gamma_k * (v_k - x_k)
+        fval_prev=fval
         fval = np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
         func_val_record.append(fval)
         time_record.append(time()-t_s)
         Ax = params['A'].dot(x_k)
         data_accesses += m
-        pbar.set_description('Function value: %.8f / Grad norm: %.8f'%(fval,np.linalg.norm(g_k)))
+        pbar.set_description('Function value: %.8f / Grad norm: %.8f'%(fval,grad_norm))
         # print("function value:",np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2)
     # print("Done.")
     t_e=time()

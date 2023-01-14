@@ -99,7 +99,7 @@ def damped_newton(objective, f, f_grad, f_hessian, x0, D, epsilon=1e-6, max_iter
         decrement = (-grad@dk)**0.5
         if decrement**2/2 <= epsilon:
             # print('** End The Loop - Iter Cnt.:',iter_cnt, 'Decrement:',decrement, 'fval:',f(xk))
-            return xk, iter_cnt, fvals
+            return xk, iter_cnt, fvals,times
         tk = armijo_search(f, f_grad, xk, t_hat=1, alpha=0.1, beta=0.5, D=D, isNewton=True, dk=dk)
         # print('Iter Cnt.:',iter_cnt, 'Decrement:',decrement, 'fval:',f(xk), 'tk:',tk)
         xk += tk*dk
@@ -128,7 +128,7 @@ def bfgs(objective, f, f_grad, f_hessian, x0, D, alpha=0.1, beta=0.5, epsilon=1e
         grad_next = f_grad(xk_next)
         # if np.linalg.norm(grad_next, ord=2) <= epsilon:
         if np.linalg.norm(grad_next, ord=2) <= epsilon or np.linalg.norm(xk_next)>=D/2-1e-2:
-            return xk_next, iter_cnt, fvals
+            return xk_next, iter_cnt, fvals, times
         # print(f'Iteration {iter_cnt} - grad_norm:',np.linalg.norm(grad_next),"tk:",tk, "x_norm:",np.linalg.norm(xk_next))
         # mat_k = np.linalg.inv(f_hessian(xk_next))
         mat_k = update_approximation_bfgs(mat=mat_k, sk=sk, yk=grad_next-grad_k)
@@ -272,6 +272,7 @@ if __name__ == "__main__":
     params['outer_eps']=1e-6
     params['n_iters']=100
     params['lambda']=1/lamda
+    params['t_init']=1
     history=None
     decrease_gamma=True
     #* objective
@@ -308,6 +309,24 @@ if __name__ == "__main__":
         return np.eye(x.size)/(x_norm*(D/2-x_norm)) + (2*x_norm-D/2)/(x_norm**3 * (D/2-x_norm)**2)*xxT
         # return 4/((D**2-xTx)**2)*xxT + 8/(D**2-4*x@x)*np.eye(x.size)
     
+    #* Contracting Newton
+    np.random.seed(seed)
+    params['x_0'] = np.zeros(n)+0.005
+    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
+    x_opt_ctr, t_ctr, fvals_ctr, time_ctr = cn.contracting_newton(params, c_0, decrease_gamma)
+    print(f'收缩域牛顿法 - 最小值: {f(x_opt_ctr):>2f}\t耗时: {t_ctr:>2f}s')
+    #* Contracting Newton (IPM-Newton)
+    np.random.seed(seed)
+    params['x_0'] = np.zeros(n)+0.005
+    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
+    x_opt_ctr_ipm, t_ctr_ipm, fvals_ctr_ipm, time_ctr_ipm = ci.contracting_newton(params, c_0, decrease_gamma, False)
+    print(f'收缩域牛顿法(内点法) - 最小值: {f(x_opt_ctr_ipm):>2f}\t耗时: {t_ctr_ipm:>2f}s')
+    #* Contracting Newton (IPM-BFGS)
+    np.random.seed(seed)
+    params['x_0'] = np.zeros(n)+0.005
+    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
+    x_opt_ctr_bfgs, t_ctr_bfgs, fvals_ctr_bfgs, time_ctr_bfgs = ci.contracting_newton(params, c_0, decrease_gamma, True)
+    print(f'收缩域牛顿法(内点法BFGS) - 最小值: {f(x_opt_ctr_bfgs):>2f}\t耗时: {t_ctr_bfgs:>2f}s')
     #* 高精度 - 求解问题最优解
     np.random.seed(seed)
     t_init = 1
@@ -338,24 +357,7 @@ if __name__ == "__main__":
     # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
     x_opt_pgd, t_pgd, fvals_pgd, times_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=100)
     print(f'投影次梯度 - 最小值: {f(x_opt_pgd):>2f}\t耗时: {t_pgd:>2f}s')
-    #* Contracting Newton
-    np.random.seed(seed)
-    params['x_0'] = np.zeros(n)+0.005
-    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
-    x_opt_ctr, t_ctr, fvals_ctr, time_ctr = cn.contracting_newton(params, c_0, decrease_gamma)
-    print(f'收缩域牛顿法 - 最小值: {f(x_opt_ctr):>2f}\t耗时: {t_ctr:>2f}s')
-    #* Contracting Newton (IPM-Newton)
-    np.random.seed(seed)
-    params['x_0'] = np.zeros(n)+0.005
-    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
-    x_opt_ctr_ipm, t_ctr_ipm, fvals_ctr_ipm, time_ctr_ipm = ci.contracting_newton(params, c_0, decrease_gamma, False)
-    print(f'收缩域牛顿法(内点法) - 最小值: {f(x_opt_ctr_ipm):>2f}\t耗时: {t_ctr_ipm:>2f}s')
-    #* Contracting Newton (IPM-BFGS)
-    np.random.seed(seed)
-    params['x_0'] = np.zeros(n)+0.005
-    # x_opt_pgd, t_pgd, fvals_pgd, grad_norm_pgd = projected_gradient_descent(f=f, f_grad=f_grad, x0=init_x, D=D, t_hat=5, epsilon=1e-6, max_iters=4010)
-    x_opt_ctr_bfgs, t_ctr_bfgs, fvals_ctr_bfgs, time_ctr_bfgs = ci.contracting_newton(params, c_0, decrease_gamma, True)
-    print(f'收缩域牛顿法(内点法BFGS) - 最小值: {f(x_opt_ctr_bfgs):>2f}\t耗时: {t_ctr_bfgs:>2f}s')
+
     # 保存计算迭代的计算结果
     results = {
         'newton': (fvals_damped.tolist(), t_ipm_damped, x_opt_ipm_damped.tolist()),

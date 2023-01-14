@@ -122,6 +122,7 @@ def minimize_quadratic_on_l2_ball(g: np.ndarray, H: np.ndarray, R: float, inner_
             phi_tau = 1.0 / S_tau_norm - 1.0 / R
 
             if abs(phi_tau) < inner_eps or abs(phi_tau_prime) < inner_eps:
+                # print(abs(phi_tau),'\t',abs(phi_tau_prime))
                 break
 
     return -Q.dot(S_tau)
@@ -136,24 +137,21 @@ def contracting_newton(params, c_0, decrease_gamma):
     data_accesses = m
 
     x_k = params['x_0'].copy()
-    func_val_record = [np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2]
+    fval_prev=np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
+    func_val_record = [fval_prev]
     time_record=[t_s]
     # Ax = params['A'].dot(x_k)
     Ax = params['A']@x_k
     g_k = np.zeros(n)
     H_k = np.zeros((n, n))
     v_k = np.zeros(n)
-
+    fval = fval_prev
     gamma_str = f"gamma_k = {c_0}"
     if decrease_gamma:
         gamma_str += " / (3 + k)"
     # print(f"Contracting Newton Method, {gamma_str}")
     pbar=tqdm(range(params['n_iters'] ))
     for k in pbar:
-        to_finish = False
-        if to_finish or (k>=1 and grad_norm<params['outer_eps']):
-            break
-
         gamma_k = c_0
         if decrease_gamma:
             gamma_k /= 3.0 + k
@@ -162,6 +160,10 @@ def contracting_newton(params, c_0, decrease_gamma):
         # print("Round:",k,flush=True)
         g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k) 
         grad_norm=np.linalg.norm(g_k)
+        if grad_norm<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<params['outer_eps']):
+            break
+
+
         H_k = (inv_m * gamma_k) * (params['A'].T.dot(((1 / (1 + np.exp(-Ax))) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A'])) + (inv_m * gamma_k)*2*params['lambda']*np.diag([1.0]*x_k.size)
         g_k -= H_k.dot(x_k)
 
@@ -170,6 +172,7 @@ def contracting_newton(params, c_0, decrease_gamma):
         x_k += gamma_k * (v_k - x_k)
         Ax = params['A'].dot(x_k)
         data_accesses += m
+        fval_prev=fval
         fval = np.average(np.log(1+np.exp(-params['b']*(params['A_o']@x_k))))+inv_m*params['lambda']*np.linalg.norm(x_k)**2
         func_val_record.append(fval)
         time_record.append(time()-t_s)
