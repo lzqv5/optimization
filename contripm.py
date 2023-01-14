@@ -69,19 +69,30 @@ def f(x,params):
 
 def f_orig(x,params):
     return f(x,params)
+
 def f_grad(x,params):
-    b=params['b']
-    A=params['A_o']
-    m=A.shape[0]
-    return np.ones(m)@(np.expand_dims((-b)/(1+np.exp(b*(A@x))), axis=1)*A)/m + 2/(1/params['lambda']*m)*x
+    m=params['A'].shape[0]
+    return 1/m * (params['A'].T.dot(1 / (1 + np.exp(-params['A']@x)))+2*params['lambda']*x)
 
 def f_hessian(x,params):
-    b=params['b']
-    A=params['A_o']
+    A=params['A']
     m=A.shape[0]
     Ax = A@x
-    exp_bAx = np.exp(b*Ax)
-    return (A.T @ (np.expand_dims(b*b*exp_bAx/(1+exp_bAx)**2, axis=1)*A) )/m + 2/(1/params['lambda']*m)*np.eye(x.size)
+    return (1/m ) * (params['A'].T.dot(((1 / (1 + np.exp(-Ax))) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A'])) + 1/m*2*params['lambda']*np.diag([1.0]*x.size)
+# Can also be
+# def f_grad(x,params):
+#     b=params['b']
+#     A=params['A_o']
+#     m=A.shape[0]
+#     return np.ones(m)@(np.expand_dims((-b)/(1+np.exp(b*(A@x))), axis=1)*A)/m + 2/(1/params['lambda']*m)*x
+
+# def f_hessian(x,params):
+#     b=params['b']
+#     A=params['A_o']
+#     m=A.shape[0]
+#     Ax = A@x
+#     exp_bAx = np.exp(b*Ax)
+#     return (A.T @ (np.expand_dims(b*b*exp_bAx/(1+exp_bAx)**2, axis=1)*A) )/m + 2/(1/params['lambda']*m)*np.eye(x.size)
 def f_int(x,params,x_k,gamma_k):
     return f_grad(x_k,params).dot(x-x_k)+gamma_k/2*(f_hessian(x_k,params)@(x-x_k)).dot(x-x_k)
 def f_int_grad(x,params,x_k,gamma_k):
