@@ -160,7 +160,7 @@ def contracting_newton(params, c_0, decrease_gamma):
         # print("Round:",k,flush=True)
         g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k) 
         grad_norm=np.linalg.norm(g_k)
-        if grad_norm<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<params['outer_eps']):
+        if grad_norm<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<0.01*params['outer_eps']):
             break
 
 

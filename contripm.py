@@ -286,7 +286,7 @@ def contracting_newton(params, c_0, decrease_gamma, isbfgs):
         g_k = inv_m * (params['A'].T.dot(1 / (1 + np.exp(-Ax)))+2*params['lambda']*x_k)
         grad_norm=np.linalg.norm(g_k) 
         
-        if (np.linalg.norm(g_k)<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<params['outer_eps'])):
+        if (np.linalg.norm(g_k)<params['outer_eps'] or (k>=1 and abs(fval-fval_prev)/max(abs(fval_prev),1)<0.01*params['outer_eps'])):
             break
         H_k = (inv_m ) * (params['A'].T.dot(((1 / (1 + np.exp(-Ax))) * (1 - 1 / (1 + np.exp(-Ax))))[:, np.newaxis] * params['A'])) + inv_m*2*params['lambda']*np.diag([1.0]*x_k.size)
 
