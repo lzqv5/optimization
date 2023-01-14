@@ -239,12 +239,12 @@ def bfgs(objective, f, f_grad, f_hessian, x0, D, alpha=0.1, beta=0.5, epsilon=1e
         xk_next = xk + sk
         grad_next = f_grad(xk_next)
         # if np.linalg.norm(grad_next, ord=2) <= epsilon:
-        if np.linalg.norm(xk_next)>=D/2-1e-2:
-            while np.linalg.norm(xk_next)>=D/2-1e-2:
-                xk_next = xk + tk / 2 * dk
-                tk /= 2
-            return xk_next, iter_cnt, fvals, times
-        if np.linalg.norm(grad_next, ord=2) <= epsilon:
+        # if np.linalg.norm(xk_next)>=D/2-1e-2:
+        #     while np.linalg.norm(xk_next)>=D/2-1e-2:
+        #         xk_next = xk + tk / 2 * dk
+        #         tk /= 2
+        #     return xk_next, iter_cnt, fvals, times
+        if np.linalg.norm(grad_next, ord=2) <= epsilon or np.linalg.norm(xk_next)>=D/2-1e-2:
             return xk_next, iter_cnt, fvals, times
         
         # print(f'Iteration {iter_cnt} - grad_norm:',np.linalg.norm(grad_next),"tk:",tk, "x_norm:",np.linalg.norm(xk_next))

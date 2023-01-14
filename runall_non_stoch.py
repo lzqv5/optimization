@@ -128,12 +128,12 @@ def bfgs(objective, f, f_grad, f_hessian, x0, D, alpha=0.1, beta=0.5, epsilon=1e
         xk_next = xk + sk
         grad_next = f_grad(xk_next)
         # if np.linalg.norm(grad_next, ord=2) <= epsilon:
-        if np.linalg.norm(xk_next)>=D/2-1e-2:
-            while np.linalg.norm(xk_next)>=D/2-1e-2:
-                xk_next = xk + tk / 2 * dk
-                tk /= 2
-            return xk_next, iter_cnt, fvals, times
-        if np.linalg.norm(grad_next, ord=2) <= epsilon:
+        # if np.linalg.norm(xk_next)>=D/2-1e-2:
+        #     while np.linalg.norm(xk_next)>=D/2-1e-2:
+        #         xk_next = xk + tk / 2 * dk
+        #         tk /= 2
+        #     return xk_next, iter_cnt, fvals, times
+        if np.linalg.norm(grad_next, ord=2) <= epsilon or np.linalg.norm(xk_next)>=D/2-1e-2:
             return xk_next, iter_cnt, fvals, times
         # print(f'Iteration {iter_cnt} - grad_norm:',np.linalg.norm(grad_next),"tk:",tk, "x_norm:",np.linalg.norm(xk_next))
         # mat_k = np.linalg.inv(f_hessian(xk_next))
@@ -320,6 +320,8 @@ if __name__ == "__main__":
         return np.eye(x.size)/(x_norm*(D/2-x_norm)) + (2*x_norm-D/2)/(x_norm**3 * (D/2-x_norm)**2)*xxT
         # return 4/((D**2-xTx)**2)*xxT + 8/(D**2-4*x@x)*np.eye(x.size)
     
+
+
     #* 高精度 - 求解问题最优解
     np.random.seed(seed)
     t_init = 1
