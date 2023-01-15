@@ -1,7 +1,7 @@
 from tqdm import tqdm, trange
 from libsvm.svmutil import svm_read_problem # https://blog.csdn.net/u013630349/article/details/47323883
 from time import time
-
+# Reference to doikov/contracting-newton
 import cvxpy as cp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -43,37 +43,7 @@ def solve_tridiagonal_system(diag: np.ndarray, subdiag: np.ndarray, tau: float, 
 
     return d
 
-2 * np.finfo(float).eps
-def ss(A, jj):
-    """Subfunction for h_trid."""
-    return np.sqrt(np.sum(A[jj + 1:, jj] ** 2))
 
-def h_trid(A):
-    """
-    H_TRID(A) uses Householder method to form a tridiagonal matrix from A.
-    Must have a SQUARE SYMMETRIC matrix as the input.
-    """
-    M, N = A.shape
-    if M != N or (A != A.T).any():  # This just screens matrices that can't work.
-        raise ValueError("Matrix must be square symmetric only, see help.")
-
-    lngth = len(A)  # Preallocations.
-    v = np.zeros(lngth)
-    I = np.eye(lngth)
-    Aold = A
-    finalP=np.eye(lngth)
-    for jj in range(lngth - 2):  # Build each vector j and run the whole procedure.
-        v[:jj+1] = 0
-        S = ss(Aold, jj)
-        v[jj + 1] = np.sqrt(0.5 * (1 + abs(Aold[jj + 1, jj]) / (S+2 * np.finfo(float).eps)))
-        v[jj + 2:] = Aold[jj + 2:, jj] * np.sign(Aold[jj + 1, jj]) / (2 * v[jj + 1] * S+2 * np.finfo(float).eps )
-        P = I - 2 * np.outer(v, v)
-        Anew = P @ Aold @ P
-        Aold = Anew
-        finalP=finalP@P
-    # Anew[abs(Anew) < 5e-14] = 0  # Tolerance.
-
-    return Anew,finalP
 
 
 
