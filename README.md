@@ -47,3 +47,5 @@ w8a.t实验：
 python runctr_ipm.py \--data_path datasets/w8a.t \--save_path
 D_100_w8at.json \--diameter 100 \--lamda 100 \--rm_zeros 0
 ```
+
+其他参数请参照代码。
